@@ -185,14 +185,6 @@ if st.button("Run Search", key="run_search"):
         # 필터 결과가 0건일 때 예시 submitter 제공
         if st.session_state.total_count == 0:
             st.warning("⚠️ 필터에 맞는 논문이 없습니다. 조건을 다시 확인해 보세요.")
-            try:
-                cur.execute(
-                    "SELECT DISTINCT submitter FROM paper_schema.paper LIMIT 10;"
-                )
-                submitters = [r[0] for r in cur.fetchall()]
-                st.info(f"예시 submitter: {', '.join(submitters)}")
-            except:
-                pass
             st.stop()
 
         # 3) 유사도 상위 3개 논문 조회
