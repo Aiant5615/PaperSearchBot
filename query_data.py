@@ -10,6 +10,7 @@ from Embeddings import get_embedding_function
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.llms.ollama import Ollama
 import streamlit as st
+from rag import PaperQASystem
 
 # ─── 1) 환경변수 및 DB 연결 ──────────────────────────────────────
 load_dotenv(override=True)
@@ -67,6 +68,12 @@ for key, default in [
     ("answer", None),
     ("filter_nl", ""),
     ("query_nl", ""),
+    ("selected_paper_id", None),
+    ("selected_paper_title", None),
+    ("qa_system", None),
+    ("qa_paper_id", None),
+    ("paper_qa_question", ""),
+    ("paper_qa_answer", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -83,7 +90,7 @@ Tables:
 - paper_schema.paper_category(paper_id, category_id)
 
 **When there are multiple conditions, join them with `AND`.**  
-Generate **only** a single-line, valid SQL WHERE clause (omit the “WHERE” keyword entirely).  
+Generate **only** a single-line, valid SQL WHERE clause (omit the "WHERE" keyword entirely).  
 Do **NOT** include line breaks, comments, or explanations—just one SQL expression.
 
 ### Example 1: Author only  
@@ -142,6 +149,7 @@ Papers:
 Question: {question}
 
 Please cite each paper by enclosing its title in square brackets, e.g. [Title].
+When writing mathematical formulas, please use KaTeX syntax. Enclose inline formulas with `$` and block formulas with `$$`.
 """
 
 # ─── 5) Streamlit UI ─────────────────────────────────────────────
@@ -159,6 +167,10 @@ if st.button("Run Search", key="run_search"):
     if not st.session_state.filter_nl or not st.session_state.query_nl:
         st.warning("Please provide both a filter condition and a search query.")
     else:
+        # Reset state for a new search
+        st.session_state.results = []
+        st.session_state.answer = None
+
         # 1) WHERE 절 생성
         try:
             with st.spinner("Generating SQL filter..."):
@@ -182,7 +194,6 @@ if st.button("Run Search", key="run_search"):
             show_db_schema(cur)
             st.stop()
 
-        # 필터 결과가 0건일 때 예시 submitter 제공
         if st.session_state.total_count == 0:
             st.warning("⚠️ 필터에 맞는 논문이 없습니다. 조건을 다시 확인해 보세요.")
             st.stop()
@@ -212,35 +223,99 @@ if st.button("Run Search", key="run_search"):
             show_db_schema(cur)
             st.stop()
 
-        st.session_state.answer = None
+        # 4) Immediately generate answer if results were found
+        if st.session_state.results:
+            try:
+                with st.spinner("Generating summary answer..."):
+                    context = "\n\n---\n\n".join(
+                        f"Title: {t}\nAbstract: {a}"
+                        for _, t, a, _ in st.session_state.results
+                    )
+                    prompt = ChatPromptTemplate.from_template(ANSWER_PROMPT).format(
+                        context=context, question=st.session_state.query_nl
+                    )
+                    st.session_state.answer = Ollama(model="llama3.2:3b").invoke(prompt)
+            except Exception as e:
+                st.error("❌ Answer-generation error")
+                st.error(str(e))
+                show_db_schema(cur)
+
 
 # ─── 6) 결과 및 답변 생성 UI ───────────────────────────────────
-if st.session_state.results:
+if st.session_state.where_clause:
     st.code(
         f"/* WHERE clause */\nWHERE {st.session_state.where_clause}", language="sql"
     )
-    st.info(f"Filtered papers count: **{st.session_state.total_count}**")
-    st.success(f"Top **{len(st.session_state.results)}** similar papers:")
-
-    for i, (pid, title, abstract, upd) in enumerate(st.session_state.results, 1):
-        st.markdown(f"**{i}. {title}**  \n- ID: `{pid}`, Updated: {upd}")
-        st.write(abstract[:200].replace("\n", " ") + "…")
-        st.write("---")
-
-    if st.button("Generate Answer", key="gen_answer"):
-        try:
-            context = "\n\n---\n\n".join(
-                f"Title: {t}\nAbstract: {a}" for _, t, a, _ in st.session_state.results
-            )
-            prompt = ChatPromptTemplate.from_template(ANSWER_PROMPT).format(
-                context=context, question=st.session_state.query_nl
-            )
-            st.session_state.answer = Ollama(model="llama3.2:3b").invoke(prompt)
-        except Exception as e:
-            st.error("❌ Answer-generation error")
-            st.error(str(e))
-            show_db_schema(cur)
 
 if st.session_state.answer:
     st.subheader("💬 Generated Answer")
     st.write(st.session_state.answer)
+    st.write("---")
+
+if st.session_state.results:
+    st.info(f"Filtered papers count: **{st.session_state.total_count}**")
+    st.success(
+        f"Top **{len(st.session_state.results)}** similar papers (used as context for the answer above):"
+    )
+
+    for i, (pid, title, abstract, upd) in enumerate(st.session_state.results, 1):
+        st.markdown(f"**{i}. {title}**  \n- ID: `{pid}`, Updated: {upd}")
+        st.write(abstract[:200].replace("\n", " ") + "…")
+        if st.button(f"📄 This paper Q&A", key=f"qa_{pid}"):
+            st.session_state.selected_paper_id = pid
+            st.session_state.selected_paper_title = title
+            st.session_state.paper_qa_question = ""
+            st.session_state.paper_qa_answer = None
+        st.write("---")
+
+
+# ─── 7) 논문에 대한 질의응답 ───────────────────────────────────
+if st.session_state.selected_paper_id:
+    st.markdown(f"### 💬 Q&A for Paper: {st.session_state.selected_paper_title}")
+
+    # Check if we need to load a new paper
+    if st.session_state.qa_paper_id != st.session_state.selected_paper_id:
+        with st.spinner(
+            f"Loading paper '{st.session_state.selected_paper_title}' for Q&A... (may take a moment)"
+        ):
+            try:
+                qa_system = PaperQASystem(openai_api_key=os.getenv("OPENAI_API_KEY"))
+                url = (
+                    f"https://ar5iv.labs.arxiv.org/html/{st.session_state.selected_paper_id}"
+                )
+                if qa_system.load_paper(url):
+                    st.session_state.qa_system = qa_system
+                    st.session_state.qa_paper_id = st.session_state.selected_paper_id
+                    st.success("Paper loaded successfully. You can now ask questions.")
+                else:
+                    st.error("Failed to load and process the paper.")
+                    st.session_state.qa_system = None
+                    st.session_state.qa_paper_id = None
+            except Exception as e:
+                st.error(f"An error occurred while loading the paper: {e}")
+                st.session_state.qa_system = None
+                st.session_state.qa_paper_id = None
+
+    # If paper is loaded, show Q&A interface
+    if (
+        st.session_state.qa_system
+        and st.session_state.qa_paper_id == st.session_state.selected_paper_id
+    ):
+        st.session_state.paper_qa_question = st.text_input(
+            "Ask a question about this paper:",
+            value=st.session_state.paper_qa_question,
+            key=f"q_input_{st.session_state.selected_paper_id}",  # Unique key
+        )
+
+        if st.button("Ask", key=f"ask_btn_{st.session_state.selected_paper_id}"):
+            if st.session_state.paper_qa_question:
+                with st.spinner("Finding an answer..."):
+                    answer = st.session_state.qa_system.answer_question(
+                        st.session_state.paper_qa_question
+                    )
+                    st.session_state.paper_qa_answer = answer
+            else:
+                st.warning("Please enter a question.")
+
+        if st.session_state.paper_qa_answer:
+            st.markdown(st.session_state.paper_qa_answer)
