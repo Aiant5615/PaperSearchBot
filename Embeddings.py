@@ -9,3 +9,4 @@ def get_embedding_function():
 # if __name__ == "__main__":
 #     vector = get_embedding_function().embed_query('Testing the embedding model')
 #     print(len(vector))
+

@@ -5,7 +5,15 @@ from tqdm import tqdm
 from langchain_ollama import OllamaEmbeddings
 import numpy as np
 from datetime import date
+from dotenv import load_dotenv
+import os
 
+load_dotenv(override=True)
+DBUSER = os.getenv("DBUSER", "postgres")  # 기본값 postgres
+DBPASS = os.getenv("DBPASS", "")
+DBHOST = os.getenv("DBHOST")
+DBPORT = os.getenv("DBPORT")
+DBNAME = os.getenv("DBNAME")
 
 def get_embedding_function():
     embeddings = OllamaEmbeddings(
@@ -22,11 +30,12 @@ with open(file_path, "r", encoding="utf-8") as f:
 
 # 1) PostgreSQL 연결 설정
 conn = psycopg2.connect(
-    dbname="postgres",
-    user="postgres",
-    password="dellaanima",
-    host="localhost",
-    port="5432",
+        host=DBHOST,
+        port=DBPORT,
+        dbname=DBNAME,
+        user=DBUSER,
+        password=DBPASS,
+        sslmode="disable" if DBHOST in ("localhost", "127.0.0.1") else "require",
 )
 cur = conn.cursor()
 
@@ -42,7 +51,7 @@ with open(file_path, "r", encoding="utf-8") as f:
         update_date = parser.parse(data.get("update_date")).date()
 
         # ─── 2024년 1월 1일 이전이면 스킵 ─────────────────────────────
-        if update_date < date(2024, 1, 1):
+        if update_date < date(2025, 1, 1):
             continue
         ### Temp : Data 너무 많아서 우선 2024-01-01 이후것만 ####
 

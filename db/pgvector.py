@@ -12,9 +12,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 DBUSER = os.getenv("DBUSER", "postgres")  # 기본값 postgres
 DBPASS = os.getenv("DBPASS", "")
-DBHOST = os.getenv("DBHOST", "localhost")
-DBPORT = os.getenv("DBPORT", "5432")
-DBNAME = os.getenv("DBNAME", "postgres")
+DBHOST = os.getenv("DBHOST")
+DBPORT = os.getenv("DBPORT")
+DBNAME = os.getenv("DBNAME")
 
 # ───────────────────────────────────────────────────────────────────────────────
 # 2) PostgreSQL에 연결하고 pgvector 확장 설치
