@@ -51,6 +51,16 @@ DBUSER=your_db_user
 DBPASS=your_db_password
 ```
 
+## 데이터 준비
+
+1. arXiv 데이터셋 다운로드
+   - [Kaggle arXiv Dataset](https://www.kaggle.com/datasets/Cornell-University/arxiv)에서 데이터셋을 다운로드합니다.
+   - Kaggle 계정이 필요하며, 데이터셋 사용을 위해 Kaggle API 토큰을 설정해야 할 수 있습니다.
+
+2. 데이터 압축 해제
+   - 다운로드한 데이터셋을 `data` 폴더에 압축 해제합니다.
+   - 데이터셋은 JSON 형식으로 제공되며, 메타데이터와 논문 내용을 포함합니다.
+
 ## 데이터베이스 설정
 
 1. PostgreSQL 설치 및 pgvector 확장 활성화
@@ -85,3 +95,4 @@ streamlit run query_data.py
 - OpenAI API 키가 필요합니다
 - PostgreSQL 데이터베이스가 필요합니다
 - 충분한 디스크 공간이 필요합니다 (논문 데이터 저장용)
+- Kaggle 계정과 API 토큰이 필요할 수 있습니다
